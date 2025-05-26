@@ -95,15 +95,28 @@ class Agent(object):
         self.states, self.next_states, self.action_log_probs, self.rewards, self.done = [], [], [], [], []
 
         #
-        # TASK 2:
+        # TASK 2: REINFORCE (Vanilla Policy Gradient)
         #   - compute discounted returns
+        returns = discount_rewards(rewards, self.gamma)
+        # Baseline, does not change the final policy, but can help with variance reduction which help us to achive the final policy faster, better performance. It can be any constant value, or even any function, as long as it does not depend on the actions taken.
+        baseline = 0 # For TASK 2.a
+        baseline = 20 # For TASK 2.b
+        
         #   - compute policy gradient loss function given actions and returns
+        policy_loss = - (action_log_probs * (returns - baseline)).mean() #sum() or mean()? # the expression -(action_log_probs * returns).sum() is directly the negative of the REINFORCE objective for a sampled trajectory. When you minimize this, you are performing gradient ascent on the actual objective.
+        
         #   - compute gradients and step the optimizer
-        #
+        # Backpropagation (we are minimizing the negative log likelihood of the actions taken, weighted by the returns)
+        self.optimizer.zero_grad()      # 1. Clear old gradients
+        policy_loss.backward()          # 2. Compute new gradients (backprop)
+        self.optimizer.step()           # 3. Update the policy parameters
+        
 
 
         #
-        # TASK 3:
+        # TASK 3: Actor Critic, To assist the policy update, by reducing gradient variance. In other words, to provide a baseline for the policy gradient.
+        # Critic is when the state-value function is used to assess actions
+        
         #   - compute boostrapped discounted return estimates
         #   - compute advantage terms
         #   - compute actor loss and critic loss
