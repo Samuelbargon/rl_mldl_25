@@ -48,20 +48,25 @@ def main():
 		done = False
 		train_reward = 0
 		state = env.reset()  # Reset the environment and observe the initial state
+		agent.reset_traces()  # Reset eligibility traces 
 
 		while not done:  # Loop until the episode is over
 
-			action, action_probabilities = agent.get_action(state)
-			previous_state = state
+			# action, action_probabilities = agent.get_action(state)
+			# previous_state = state
 
-			state, reward, done, info = env.step(action.detach().cpu().numpy())
+			# state, reward, done, info = env.step(action.detach().cpu().numpy())
 
-			agent.store_outcome(previous_state, state, action_probabilities, reward, done)
+			# agent.store_outcome(previous_state, state, action_probabilities, reward, done)
+			action, _ = agent.get_action(state)
+			next_state, reward, done, info = env.step(action.detach().cpu().numpy())
+			agent.step(state, action, reward, next_state, done)
+			state = next_state
 
 			train_reward += reward
    
 		# Policy update after each episode:
-		agent.update_policy()
+		# agent.update_policy()
 		
 		if (episode+1)%args.print_every == 0:
 			print('Training episode:', episode)

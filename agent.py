@@ -104,88 +104,84 @@ class Agent(object):
             list(self.policy.fc3_critic.parameters()), lr=1e-3)
         
 
+        # self.gamma = 0.99
+        # self.states = []
+        # self.next_states = []
+        # self.action_log_probs = []
+        # self.rewards = []
+        # self.done = []
+
         self.gamma = 0.99
-        self.states = []
-        self.next_states = []
-        self.action_log_probs = []
-        self.rewards = []
-        self.done = []
-
-
-    def update_policy(self):
-        action_log_probs = torch.stack(self.action_log_probs, dim=0).to(self.train_device).squeeze(-1)
-        states = torch.stack(self.states, dim=0).to(self.train_device).squeeze(-1)
-        next_states = torch.stack(self.next_states, dim=0).to(self.train_device).squeeze(-1)
-        rewards = torch.stack(self.rewards, dim=0).to(self.train_device).squeeze(-1)
-        done = torch.Tensor(self.done).to(self.train_device)
-
-        self.states, self.next_states, self.action_log_probs, self.rewards, self.done = [], [], [], [], []
-
-
-        # #
-        # # TASK 2: REINFORCE (Vanilla Policy Gradient)
-        # #   - compute discounted returns, rewards are usually discounted over time, meaning immediate rewards are valued more than future rewards.
-        # returns = discount_rewards(rewards, self.gamma) # For TASK 2
-        # # Baseline, does not change the final policy, but can help with variance reduction which help us to achive the final policy faster, better performance. It can be any constant value, or even any function, as long as it does not depend on the actions taken.
-        # baseline = 0 # For TASK 2.a
-        # baseline = 20 # For TASK 2.b
+        self.lambda_actor = lambda_actor
+        self.lambda_critic = lambda_critic
         
-        # #   - compute policy gradient loss function given actions and returns
-        # policy_loss = - (action_log_probs * (returns - baseline)).mean() #sum() or mean()? # the expression -(action_log_probs * returns).sum() is directly the negative of the REINFORCE objective for a sampled trajectory. When you minimize this, you are performing gradient ascent on the actual objective.
-        
-        # #   - compute gradients and step the optimizer
-        # # Backpropagation (we are minimizing the negative log likelihood of the actions taken, weighted by the returns)
-        # self.optimizer.zero_grad()      # 1. Clear old gradients
-        # policy_loss.backward()          # 2. Compute new gradients (backprop)
-        # self.optimizer.step()           # 3. Update the policy parameters
-        
+        # Eligibility traces for actor and critic
+        self.actor_params = (
+            list(self.policy.fc1_actor.parameters()) +
+            list(self.policy.fc2_actor.parameters()) +
+            list(self.policy.fc3_actor_mean.parameters()) +
+            [self.policy.sigma]
+        )
+        self.critic_params = (
+            list(self.policy.fc1_critic.parameters()) +
+            list(self.policy.fc2_critic.parameters()) +
+            list(self.policy.fc3_critic.parameters())
+        )
+        self.actor_eligibility = [torch.zeros_like(p, device=self.train_device) for p in self.actor_params]
+        self.critic_eligibility = [torch.zeros_like(p, device=self.train_device) for p in self.critic_params]
+         
+             
+    def step(self, state, action, reward, next_state, done):
+        # Convert to tensors
+        state = torch.from_numpy(state).float().to(self.train_device)
+        next_state = torch.from_numpy(next_state).float().to(self.train_device)
+        reward = torch.tensor(reward, dtype=torch.float32, device=self.train_device)
+        done = torch.tensor(done, dtype=torch.float32, device=self.train_device)
 
+        # Get value estimates
+        _, value = self.policy(state)
+        _, next_value = self.policy(next_state)
+        value = value.squeeze()
+        next_value = next_value.squeeze() * (1.0 - done)  # 0 if terminal
 
-        #
-        # TASK 3: Actor Critic, To assist the policy update, by reducing gradient variance. In other words, to provide a baseline for the policy gradient.
-        # Critic is when the state-value function is used to avaluate actions
-        # Once the critic network has learned to provide reasonable state value estimates, these estimates are used as the baseline in the policy gradient update.
-        
-        # Compute state values and next state values using the critic, the state values (which is used as baseline) are used to compute the advantage terms for the policy update.
-        # The advantage term estimate tells the actor whether a particular action in a particular state performed better or worse than expected from that state, relative to the average performance from that state.
-        # The advantage is the difference between what actually happened (or the bootstrapped target) and what was expected (the baseline).
-        state_values, next_state_values = get_state_values(self.policy, states, next_states, done, self.train_device)
+        # TD error
+        delta = reward + self.gamma * next_value - value # equivalent to "td_targets " in task 3 One-step Actor–Critic
 
-
-        #   - compute boostrapped discounted return estimates (TD targets = Temporal Difference targets which is the target used in TD learning methods, like the Actor Critic one)  
-        td_targets = rewards + self.gamma * next_state_values # equivalent to "returns" in task 2
-        
-        #   - compute advantage terms
-        advantages = td_targets - state_values # state_values is used as baseline
-        
-        #   - compute actor loss and critic loss
-        actor_loss = - (action_log_probs * advantages.detach()).mean() # equivalent to "policy_loss" in task 2
-        
-        _, state_values_for_update = self.policy(states)
-        state_values_for_update = state_values_for_update.squeeze(-1)
-        critic_loss = torch.nn.functional.mse_loss(state_values_for_update, td_targets.detach())
-
-        
-        #   - compute gradients and step the optimizer
-        # Update actor (policy network)
-        self.optimizer.zero_grad()
-        actor_loss.backward(retain_graph=True)  # retain_graph=True tells PyTorch: "Don't free the computation graph after this backward pass, because I'm going to need it again for another backward pass (the critic's loss) before the next forward pass."
-        self.optimizer.step()
-
-        # Update critic (value network)
+        # Critic: compute gradients
         self.optimizer_critic.zero_grad()
-        critic_loss.backward()
-        self.optimizer_critic.step()
+        value.backward(retain_graph=True)
+        critic_grads = [p.grad.clone() for p in self.policy.fc1_critic.parameters()]
+        # Update eligibility traces for critic
+        self.critic_eligibility = [self.gamma * self.lambda_critic * e + g for e, g in zip(self.critic_eligibility, critic_grads)]
+        # Update critic parameters
+        for p, e in zip(self.policy.fc1_critic.parameters(), self.critic_eligibility):
+            p.data += self.optimizer_critic.param_groups[0]['lr'] * delta * e
+
+        # Actor: compute gradients
+        self.optimizer_actor.zero_grad()
+        normal_dist, _ = self.policy(state)
+        log_prob = normal_dist.log_prob(action).sum()
+        log_prob.backward()
+        actor_grads = [p.grad.clone() for p in self.policy.parameters()]
+        # Update eligibility traces for actor
+        self.actor_eligibility = [self.gamma * self.lambda_actor * e + g for e, g in zip(self.actor_eligibility, actor_grads)]
+        # Update actor parameters
+        for p, e in zip(self.policy.parameters(), self.actor_eligibility):
+            p.data += self.optimizer_actor.param_groups[0]['lr'] * delta * e
+    
+    
+    
+    
+    def reset_traces(self):
+        self.actor_eligibility = [torch.zeros_like(p, device=self.train_device) for p in self.actor_params]
+        self.critic_eligibility = [torch.zeros_like(p, device=self.train_device) for p in self.critic_params]
         
-
-        return        
-
 
     def get_action(self, state, evaluation=False):
         """ state -> action (3-d), action_log_densities """
         x = torch.from_numpy(state).float().to(self.train_device)
 
-        normal_dist = self.policy(x)
+        normal_dist, _  = self.policy(x)
 
         if evaluation:  # Return mean
             return normal_dist.mean, None
@@ -206,3 +202,12 @@ class Agent(object):
         self.rewards.append(torch.Tensor([reward]))
         self.done.append(done)
 
+
+# About Actor–Critic with Eligibility Traces
+# It allows the agent to learn from sequences of actions and rewards, rather than just the immediate next state.
+# Eligibility traces are a way to assign credit to past states and actions based on their contribution to future rewards.
+# They help in learning from sequences of actions and rewards, rather than just the immediate next state.
+
+# Simple analogy:
+# One-step Critic: You taste the dish, and if it's bad, you only blame the last ingredient you added. You'll eventually learn, but it will be slow because a bad ingredient added early might not be identified for many "episodes" (meals).
+# Critic with Eligibility Traces: You taste the dish, and if it's bad, you blame the last ingredient a lot, the second-to-last ingredient a bit less, and so on. You assign partial blame to all recent ingredients. This allows you to pinpoint the problematic ingredient much faster.
