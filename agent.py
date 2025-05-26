@@ -12,15 +12,33 @@ def discount_rewards(r, gamma):
         discounted_r[t] = running_add
     return discounted_r
 
-def get_state_values(policy, states, next_states, done, device):
-    with torch.no_grad():  #It tells PyTorch not to compute or store gradients for any operations within this block.
-        _, state_values = policy(states) #The _ (underscore) in _, state_values indicates that the first output of self.policy (likely the action logits) is being ignored here
-        _, next_state_values = policy(next_states)
-        state_values = state_values.squeeze(-1)
-        next_state_values = next_state_values.squeeze(-1)
-        # For terminal states, next_state_value = 0
-        next_state_values = next_state_values * (~done.bool().to(device)) # ~done.bool(): it is a not on the boolean value of done. If done is true ~done is false. And if done is True, next_state_value should be 0 (False has as value 0), otherwise it should be the value predicted by the critic network
-    return state_values, next_state_values
+# def get_state_values(policy, states, next_states, done, device):
+#     with torch.no_grad():  #It tells PyTorch not to compute or store gradients for any operations within this block.
+#         _, state_values = policy(states) #The _ (underscore) in _, state_values indicates that the first output of self.policy (likely the action logits) is being ignored here
+#         _, next_state_values = policy(next_states)
+#         state_values = state_values.squeeze(-1)
+#         next_state_values = next_state_values.squeeze(-1)
+#         # For terminal states, next_state_value = 0
+#         next_state_values = next_state_values * (~done.bool().to(device)) # ~done.bool(): it is a not on the boolean value of done. If done is true ~done is false. And if done is True, next_state_value should be 0 (False has as value 0), otherwise it should be the value predicted by the critic network
+#     return state_values, next_state_values
+
+def get_state_values(policy, state, next_state, done, device):
+    # Ensure tensors are batch-shaped for the policy
+    if state.dim() == 1:
+        state = state.unsqueeze(0)
+    if next_state.dim() == 1:
+        next_state = next_state.unsqueeze(0)
+    if done.dim() == 0:
+        done = done.unsqueeze(0)
+    with torch.no_grad():
+        _, state_value = policy(state)
+        _, next_state_value = policy(next_state)
+        state_value = state_value.squeeze(-1)
+        next_state_value = next_state_value.squeeze(-1)
+        next_state_value = next_state_value * (1.0 - done.to(device))
+    # Remove batch dimension for single step
+    return state_value.squeeze(0), next_state_value.squeeze(0)
+
 
 class Policy(torch.nn.Module):
     def __init__(self, state_space, action_space):
@@ -112,20 +130,19 @@ class Agent(object):
         self.done = []
 
 
-    def update_policy(self):
-        action_log_probs = torch.stack(self.action_log_probs, dim=0).to(self.train_device).squeeze(-1)
-        states = torch.stack(self.states, dim=0).to(self.train_device).squeeze(-1)
-        next_states = torch.stack(self.next_states, dim=0).to(self.train_device).squeeze(-1)
-        rewards = torch.stack(self.rewards, dim=0).to(self.train_device).squeeze(-1)
-        done = torch.Tensor(self.done).to(self.train_device)
+    # def update_policy(self): # For TASK 2
+        # action_log_probs = torch.stack(self.action_log_probs, dim=0).to(self.train_device).squeeze(-1) 
+        # states = torch.stack(self.states, dim=0).to(self.train_device).squeeze(-1)
+        # next_states = torch.stack(self.next_states, dim=0).to(self.train_device).squeeze(-1) 
+        # rewards = torch.stack(self.rewards, dim=0).to(self.train_device).squeeze(-1)
+        # done = torch.Tensor(self.done).to(self.train_device) 
 
-        self.states, self.next_states, self.action_log_probs, self.rewards, self.done = [], [], [], [], []
-
+        # self.states, self.next_states, self.action_log_probs, self.rewards, self.done = [], [], [], [], [] 
 
         # #
         # # TASK 2: REINFORCE (Vanilla Policy Gradient)
         # #   - compute discounted returns, rewards are usually discounted over time, meaning immediate rewards are valued more than future rewards.
-        # returns = discount_rewards(rewards, self.gamma) # For TASK 2
+        # returns = discount_rewards(rewards, self.gamma) 
         # # Baseline, does not change the final policy, but can help with variance reduction which help us to achive the final policy faster, better performance. It can be any constant value, or even any function, as long as it does not depend on the actions taken.
         # baseline = 0 # For TASK 2.a
         # baseline = 20 # For TASK 2.b
@@ -139,38 +156,47 @@ class Agent(object):
         # policy_loss.backward()          # 2. Compute new gradients (backprop)
         # self.optimizer.step()           # 3. Update the policy parameters
         
-
-
+        #  return    
+        
+    def step(self, state, action, reward, next_state, done): # For TASK 3
         #
         # TASK 3: Actor Critic, To assist the policy update, by reducing gradient variance. In other words, to provide a baseline for the policy gradient.
         # Critic is when the state-value function is used to avaluate actions
         # Once the critic network has learned to provide reasonable state value estimates, these estimates are used as the baseline in the policy gradient update.
         
+        state = torch.from_numpy(state).float().to(self.train_device) 
+        next_state = torch.from_numpy(next_state).float().to(self.train_device) 
+        reward = torch.tensor(reward, dtype=torch.float32, device=self.train_device) 
+        done = torch.tensor(done, dtype=torch.float32, device=self.train_device)
+        
+        
         # Compute state values and next state values using the critic, the state values (which is used as baseline) are used to compute the advantage terms for the policy update.
         # The advantage term estimate tells the actor whether a particular action in a particular state performed better or worse than expected from that state, relative to the average performance from that state.
         # The advantage is the difference between what actually happened (or the bootstrapped target) and what was expected (the baseline).
-        state_values, next_state_values = get_state_values(self.policy, states, next_states, done, self.train_device)
+        state_value, next_state_value = get_state_values(self.policy, state, next_state, done, self.train_device)
 
 
         #   - compute boostrapped discounted return estimates (TD targets = Temporal Difference targets which is the target used in TD learning methods, like the Actor Critic one)  
-        td_targets = rewards + self.gamma * next_state_values # equivalent to "returns" in task 2
+        td_target = reward + self.gamma * next_state_value # equivalent to "returns" in task 2
         
         #   - compute advantage terms
-        advantages = td_targets - state_values # state_values is used as baseline
+        advantage = td_target - state_value # state_values is used as baseline
         
         #   - compute actor loss and critic loss
-        actor_loss = - (action_log_probs * advantages.detach()).mean() # equivalent to "policy_loss" in task 2
+        normal_dist, _ = self.policy(state)
+        log_prob = normal_dist.log_prob(action).sum()
+        actor_loss = -log_prob * advantage.detach() # equivalent to "policy_loss" in task 2
         
-        _, state_values_for_update = self.policy(states)
+        _, state_values_for_update = self.policy(state)
         state_values_for_update = state_values_for_update.squeeze(-1)
-        critic_loss = torch.nn.functional.mse_loss(state_values_for_update, td_targets.detach())
+        critic_loss = torch.nn.functional.mse_loss(state_values_for_update, td_target.detach())
 
         
         #   - compute gradients and step the optimizer
         # Update actor (policy network)
-        self.optimizer.zero_grad()
+        self.optimizer_actor.zero_grad()
         actor_loss.backward(retain_graph=True)  # retain_graph=True tells PyTorch: "Don't free the computation graph after this backward pass, because I'm going to need it again for another backward pass (the critic's loss) before the next forward pass."
-        self.optimizer.step()
+        self.optimizer_actor.step()
 
         # Update critic (value network)
         self.optimizer_critic.zero_grad()
@@ -185,7 +211,7 @@ class Agent(object):
         """ state -> action (3-d), action_log_densities """
         x = torch.from_numpy(state).float().to(self.train_device)
 
-        normal_dist = self.policy(x)
+        normal_dist, _  = self.policy(x)
 
         if evaluation:  # Return mean
             return normal_dist.mean, None

@@ -56,12 +56,13 @@ def main():
 
 			state, reward, done, info = env.step(action.detach().cpu().numpy())
 
-			agent.store_outcome(previous_state, state, action_probabilities, reward, done)
-
+			# agent.store_outcome(previous_state, state, action_probabilities, reward, done) # For task 2
+			agent.step(previous_state, action, reward, state, done) # For task 3
+    
 			train_reward += reward
    
 		# Policy update after each episode:
-		agent.update_policy()
+		# agent.update_policy() # For task 2
 		
 		if (episode+1)%args.print_every == 0:
 			print('Training episode:', episode)
