@@ -12,11 +12,13 @@ from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 
 def main():
     train_env = Monitor(gym.make('CustomHopper-source-v0'))
-    eval_env =  Monitor(gym.make('CustomHopper-source-v0'))
+    eval_env = Monitor(gym.make('CustomHopper-source-v0'))
 
     n_cycles = 5  # Number of train-test cycles
     train_steps_per_cycle = 160_000
     n_test_episodes = 10
+
+    cycle_avg_rewards = []
 
     for cycle in range(n_cycles):
         print(f"\n=== Training Cycle {cycle+1} ===")
@@ -49,7 +51,13 @@ def main():
                 total_reward += reward
             rewards.append(total_reward)
         avg_reward = sum(rewards) / len(rewards)
+        cycle_avg_rewards.append(avg_reward)
         print(f"Cycle {cycle+1} - Average test reward: {avg_reward}")
+
+    print("\n=== Recap of Average Rewards per Cycle ===")
+    for i, avg in enumerate(cycle_avg_rewards):
+        print(f"Cycle {i+1}: {avg}")
+    print(f"Final average over all cycles: {sum(cycle_avg_rewards)/len(cycle_avg_rewards)}")
 
 if __name__ == '__main__':
     main()
