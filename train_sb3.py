@@ -9,13 +9,14 @@ from env.custom_hopper import *
 from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
+from stable_baselines3.common.evaluation import evaluate_policy
 
 def main():
     train_env = Monitor(gym.make('CustomHopper-source-v0'))
     eval_env = Monitor(gym.make('CustomHopper-source-v0'))
 
     n_cycles = 5  # Number of train-test cycles
-    train_steps_per_cycle = 160_000
+    train_steps_per_cycle = 2e6 #2e6
     n_test_episodes = 10
 
     cycle_avg_rewards = []
@@ -40,19 +41,12 @@ def main():
 
         # Test the best model
         model = PPO.load("./best_model/best_model", env=eval_env)
-        rewards = []
-        for _ in range(n_test_episodes):
-            obs = eval_env.reset()
-            done = False
-            total_reward = 0
-            while not done:
-                action, _ = model.predict(obs, deterministic=True)
-                obs, reward, done, info = eval_env.step(action)
-                total_reward += reward
-            rewards.append(total_reward)
-        avg_reward = sum(rewards) / len(rewards)
-        cycle_avg_rewards.append(avg_reward)
-        print(f"Cycle {cycle+1} - Average test reward: {avg_reward}")
+        mean_reward, std_reward = evaluate_policy(
+            model, eval_env, n_eval_episodes=n_test_episodes, deterministic=True
+        )
+        print(f"Cycle {cycle+1} - Average test reward: {mean_reward} +/- {std_reward}")
+        cycle_avg_rewards.append(mean_reward)
+        
 
     print("\n=== Recap of Average Rewards per Cycle ===")
     for i, avg in enumerate(cycle_avg_rewards):
