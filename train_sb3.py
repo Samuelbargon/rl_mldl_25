@@ -10,12 +10,39 @@ from stable_baselines3 import PPO
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.callbacks import CheckpointCallback, EvalCallback
 from stable_baselines3.common.evaluation import evaluate_policy
+from dropo import Dropo
+import numpy as np
+import glob
+import os
 
 def main():
-    train_env = Monitor(gym.make('CustomHopper-source-v0'))
-    eval_env = Monitor(gym.make('CustomHopper-source-v0'))
+    # 1. Prepare your sim_env and dataset for DROPO
+    sim_env = gym.make('CustomHopper-source-v0')
+    
+    # Load your offline dataset here 
+    dataset_dir = "datasets/hopper10000" 
 
-    n_cycles = 5  # Number of train-test cycles
+    observations = np.load(glob.glob(os.path.join(dataset_dir, '*_observations.npy'))[0])
+    next_observations = np.load(glob.glob(os.path.join(dataset_dir, '*_nextobservations.npy'))[0])
+    actions = np.load(glob.glob(os.path.join(dataset_dir, '*_actions.npy'))[0])
+    terminals = np.load(glob.glob(os.path.join(dataset_dir, '*_terminals.npy'))[0])
+    T = {'observations': observations, 'next_observations': next_observations, 'actions': actions, 'terminals': terminals}
+
+    # 2. Run DROPO optimization
+    dropo = Dropo(sim_env=sim_env, t_length=1, scaling=1.0, seed=42, sync_parall=True)
+    dropo.set_offline_dataset(T, n=10, sparse_mode=False)
+    best_bounds, best_score, elapsed, learned_epsilon = dropo.optimize_dynamics_distribution(
+        opt='adam', budget=1000, additive_variance=False, epsilon=1e-5, sample_size=100, now=10,
+        learn_epsilon=False, normalize=True, logstdevs=False
+    )
+    means = dropo.get_means(best_bounds)
+    stds = dropo.get_stdevs(best_bounds)
+
+    # 3. Pass means and stds to your environments
+    train_env = Monitor(CustomHopper(domain='source', mass_means=means, mass_stds=stds))
+    eval_env = Monitor(CustomHopper(domain='source', mass_means=means, mass_stds=stds))
+
+    n_cycles = 1  # Number of train-test cycles
     train_steps_per_cycle = 1e6 #2e6
     n_test_episodes = 50
 

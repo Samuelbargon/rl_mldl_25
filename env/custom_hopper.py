@@ -12,14 +12,14 @@ from .mujoco_env import MujocoEnv
 
 
 class CustomHopper(MujocoEnv, utils.EzPickle):
-    def __init__(self, domain=None):
+    def __init__(self, domain=None, mass_means=None, mass_stds=None):
         MujocoEnv.__init__(self, 4)
         utils.EzPickle.__init__(self)
-
-        self.original_masses = np.copy(self.sim.model.body_mass[1:])    # Default link masses
-
-        if domain == 'source':  # Source environment has an imprecise torso mass (-30% shift)
+        self.original_masses = np.copy(self.sim.model.body_mass[1:])
+        if domain == 'source':
             self.sim.model.body_mass[1] *= 0.7
+        self.mass_means = mass_means
+        self.mass_stds = mass_stds
 
     def set_random_parameters(self):
         """Set random masses"""
@@ -28,17 +28,16 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
 
     def sample_parameters(self):
         """Sample masses according to a domain randomization distribution, except torso."""
-        #
-        # TASK 6: implement domain randomization. Remember to sample new dynamics parameter
-        #         at the start of each training episode.
-        low_boundary = 0.8
-        high_boundary = 1.2
-
         new_masses = np.copy(self.original_masses)
-
-        random_factors = np.random.uniform(low_boundary, high_boundary, size=new_masses.shape)
-        random_factors[1] = 1.0  # The torso mass value is env.sim.model.body_mass[1]
-        new_masses *= random_factors
+        if self.mass_means is not None and self.mass_stds is not None:
+            for i in range(1, len(new_masses)):
+                sampled_mass = np.random.normal(self.mass_means[i], self.mass_stds[i])
+                sampled_mass = np.clip(sampled_mass, 0.8*self.original_masses[i], 1.2*self.original_masses[i])
+                new_masses[i] = sampled_mass
+        else:
+            random_factors = np.random.uniform(0.8, 1.2, size=new_masses.shape)
+            random_factors[1] = 1.0  # The torso mass value is env.sim.model.body_mass[1]
+            new_masses *= random_factors
         return new_masses
 
 
