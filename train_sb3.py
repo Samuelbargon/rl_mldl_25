@@ -16,8 +16,8 @@ def main():
     eval_env = Monitor(gym.make('CustomHopper-source-v0'))
 
     n_cycles = 5  # Number of train-test cycles
-    train_steps_per_cycle = 2e6 #2e6
-    n_test_episodes = 10
+    train_steps_per_cycle = 1e6 #2e6
+    n_test_episodes = 50
 
     cycle_avg_rewards = []
 

@@ -27,15 +27,19 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
 
 
     def sample_parameters(self):
-        """Sample masses according to a domain randomization distribution"""
-        
+        """Sample masses according to a domain randomization distribution, except torso."""
         #
         # TASK 6: implement domain randomization. Remember to sample new dynamics parameter
         #         at the start of each training episode.
-        
-        raise NotImplementedError()
+        low_boundary = 0.8
+        high_boundary = 1.2
 
-        return
+        new_masses = np.copy(self.original_masses)
+
+        random_factors = np.random.uniform(low_boundary, high_boundary, size=new_masses.shape)
+        random_factors[1] = 1.0  # The torso mass value is env.sim.model.body_mass[1]
+        new_masses *= random_factors
+        return new_masses
 
 
     def get_parameters(self):
@@ -80,7 +84,8 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
 
 
     def reset_model(self):
-        """Reset the environment to a random initial state"""
+        """Reset the environment to a random initial state and randomize dynamics"""
+        self.set_random_parameters()  # Randomize masses at the start of each episode
         qpos = self.init_qpos + self.np_random.uniform(low=-.005, high=.005, size=self.model.nq)
         qvel = self.init_qvel + self.np_random.uniform(low=-.005, high=.005, size=self.model.nv)
         self.set_state(qpos, qvel)
