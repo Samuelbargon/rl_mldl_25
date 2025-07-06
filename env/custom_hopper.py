@@ -124,6 +124,62 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         """Returns current mjstate"""
         return self.sim.get_state()
 
+    def get_sim_state(self):
+        """Alias for get_mujoco_state, required by Dropo."""
+        return self.get_mujoco_state()
+
+    def get_task(self):
+        """Return the current randomized parameters (link masses)."""
+        return self.get_parameters()
+
+    def set_task_search_bounds(self, low=None, high=None):
+        """
+        Set the search bounds for the link masses.
+        This is used by DROPO to know the valid range for each parameter.
+        If low/high are not provided, use default bounds (e.g., 80%-120% of original masses).
+        """
+        if low is None:
+            low = 0.8 * self.original_masses
+        if high is None:
+            high = 1.2 * self.original_masses
+        self.task_low = np.array(low)
+        self.task_high = np.array(high)
+        
+        # Store the bounds for the task space
+        self.min_task = np.array(low)
+        self.max_task = np.array(high)
+
+    def set_task(self, *task):
+        """
+        Set the randomized parameters (link masses) for the environment.
+        This is called by DROPO during optimization.
+        Accepts either a single array/list or multiple values.
+        """
+        if len(task) == 1 and isinstance(task[0], (list, np.ndarray)):
+            params = np.array(task[0])
+        else:
+            params = np.array(task)
+        self.set_parameters(params)
+
+    def get_initial_mjstate(self, ob, raw_mjstate):
+        """
+        Return an initial mujoco state for the given observation and raw_mjstate.
+        This is required by DROPO for resetting the simulator state.
+        """
+        # Usually, just return a deepcopy of raw_mjstate.
+        # If you want to set qpos/qvel based on ob, you can do so here.
+        from copy import deepcopy
+        mjstate = deepcopy(raw_mjstate)
+        # Optionally update mjstate.qpos and mjstate.qvel based on ob
+        return mjstate
+
+    def get_full_mjstate(self, ob, raw_mjstate):
+        """
+        Return a full mujoco state for the given observation and raw_mjstate.
+        This is required by DROPO for resetting the simulator state.
+        """
+        return self.get_initial_mjstate(ob, raw_mjstate)
+
 
 
 """
