@@ -37,7 +37,8 @@ def parse_args_dropo():
 	parser.add_argument("--no-output", "-no", default=False, action='store_true', help="If set, DO NOT save the output of optimization problem to --output-dir")
 	parser.add_argument("--budget", type=int, default=1000, help="Number of evaluations in the opt. problem (Default: 1000)")
 	parser.add_argument("--sample_size", "-ss", type=int, default=100, help="Number of observations to sample to estimate the next-state distribution (Default: 100)")
-	parser.add_argument("--dataset", type=str, default='datasets/hopper10000', help="Specify directory containing a custom dataset to use.")
+	parser.add_argument("--dataset", type=str, default='datasets/hoppernoisy1e-510000', help="Specify directory containing a custom dataset to use.")
+	# parser.add_argument("--dataset", type=str, default='datasets/hopper10000', help="Specify directory containing a custom dataset to use.")
 	parser.add_argument("--sparse-mode", "-sm", default=False, action='store_true', help="Whether to use sparse transitions for running DROPO than reproducing full episodes. (Default: False)")
 	parser.add_argument("--no-sync-parall", default=False, action='store_true', help="If set, avoids asking `popsize` values before telling their values during parallelization.")
 	
