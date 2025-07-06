@@ -139,11 +139,11 @@ class CustomHopper(MujocoEnv, utils.EzPickle):
         If low/high are not provided, use default bounds (e.g., 80%-120% of original masses).
         """
         if low is None:
-            low = 0.8 * self.original_masses
+            low = 0.5 * self.original_masses
         if high is None:
-            high = 1.2 * self.original_masses
-        self.task_low = np.array(low)
-        self.task_high = np.array(high)
+            high = 1.5 * self.original_masses
+        # self.task_low = np.array(low)
+        # self.task_high = np.array(high)
         
         # Store the bounds for the task space
         self.min_task = np.array(low)
